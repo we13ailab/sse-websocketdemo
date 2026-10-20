@@ -49,6 +49,78 @@ The page has two panels:
 
 This lets you see the behavior, payloads, and timing differences side by side.
 
+The food-delivery location demo is available at:
+
+```text
+http://localhost:8080/tracking.html
+```
+
+---
+
+## Live Food-Delivery Tracking Demo
+
+The tracking flow uses a driver-to-server HTTP `POST` and server-to-customer SSE stream:
+
+1. The driver simulator posts a latitude and longitude every second.
+2. Spring stores the latest location per delivery in memory.
+3. Spring broadcasts each update to customer browsers connected to that delivery's SSE stream.
+4. The tracking page moves the driver marker on a Leaflet map.
+
+The map uses Leaflet with OpenStreetMap's free standard tiles and displays the required map attribution. It requires internet access in the browser. The public OpenStreetMap tile service is intended for modest demo use; follow its tile usage policy and use a hosted tile provider for production or significant traffic.
+
+### Try it in the browser
+
+1. Start the app and open `http://localhost:8080/tracking.html`.
+2. Keep the default delivery ID `demo-order-1` or choose another ID.
+3. Click **Start simulated driver**. The sample driver sends a new point every second.
+4. Watch the marker and coordinates update on the map.
+5. To see separate driver and customer clients, open the same tracking URL in two tabs with the same delivery ID. Start the simulator in one tab; the other tab receives the live locations.
+
+The sample coordinates follow a short route near Seattle. They are test coordinates, not actual driver GPS data.
+
+### Location APIs
+
+Post a driver location:
+
+```bash
+curl -X POST http://localhost:8080/api/deliveries/demo-order-1/location -H 'Content-Type: application/json' -d '{"latitude":47.6062,"longitude":-122.3321}'
+```
+
+Get the latest location:
+
+```bash
+curl http://localhost:8080/api/deliveries/demo-order-1/location
+```
+
+Watch the live event stream (run in a separate terminal, then post locations):
+
+```bash
+curl -N http://localhost:8080/api/deliveries/demo-order-1/events
+```
+
+Each event contains JSON similar to:
+
+```json
+{
+  "deliveryId": "demo-order-1",
+  "latitude": 47.6062,
+  "longitude": -122.3321,
+  "timestamp": "2026-10-20T12:00:00Z"
+}
+```
+
+Coordinates outside latitude `-90..90` or longitude `-180..180` are rejected. `GET /location` returns `404` until the first location has been posted.
+
+### Automated real-time update test
+
+The integration test opens an SSE connection, posts two different locations, and verifies that both arrive on that same connection in order. It also checks that the latest-location endpoint returns the second point:
+
+```bash
+./mvnw -Dtest=DeliveryTrackingIntegrationTest test
+```
+
+Locations and active SSE subscribers are held in application memory. They are lost on restart and are not shared between multiple app instances. This demo has no authentication; use authenticated delivery/customer access and durable storage before using a similar flow in production.
+
 ---
 
 ## SSE Endpoint (`/sse`)

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live Food Delivery Tracking</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #f3f6f8;
+        color: #17212b;
+        font-family: Arial, sans-serif;
+      }
+      main {
+        max-width: 1100px;
+        margin: auto;
+      }
+      .card {
+        padding: 18px;
+        margin: 14px 0;
+        background: white;
+        border: 1px solid #dce3e8;
+        border-radius: 10px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      input,
+      button {
+        padding: 9px 12px;
+        font: inherit;
+      }
+      input {
+        min-width: 200px;
+      }
+      button {
+        cursor: pointer;
+      }
+      #map {
+        height: 480px;
+        border-radius: 8px;
+      }
+      #status {
+        font-weight: bold;
+      }
+      .muted {
+        color: #52606d;
+      }
+      code {
+        background: #edf1f4;
+        padding: 2px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Live Food Delivery Tracking</h1>
+      <p class="muted">
+        The driver simulator posts a location every second. The customer map receives each update
+        immediately over Server-Sent Events.
+      </p>
+
+      <section class="card">
+        <h2>Delivery</h2>
+        <div class="controls">
+          <label for="delivery-id">Delivery ID</label>
+          <input id="delivery-id" value="demo-order-1" />
+          <button id="connect-button">Connect customer view</button>
+          <span id="status">Not connected</span>
+        </div>
+        <p class="muted">
+          Open this URL in two tabs with the same delivery ID: run the simulator in one tab and
+          watch the map in the other.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Driver test simulator</h2>
+        <div class="controls">
+          <button id="start-button">Start simulated driver</button>
+          <button id="stop-button" disabled>Stop driver</button>
+          <span id="driver-status" class="muted">Stopped</span>
+        </div>
+        <p class="muted">
+          Sample route near Seattle. Each simulated GPS point is sent to the Spring API; no phone
+          GPS permission is needed.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Customer map</h2>
+        <div id="map" aria-label="Map showing the delivery person's live location"></div>
+        <p id="location-label" class="muted">Waiting for the first location...</p>
+        <small class="muted">Map data © OpenStreetMap contributors.</small>
+      </section>
+
+      <p><a href="/">Back to the SSE/WebSocket comparison demo</a></p>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const initialPosition = [47.6062, -122.3321];
+      const route = [
+        [47.6062, -122.3321],
+        [47.6070, -122.3309],
+        [47.6079, -122.3297],
+        [47.6088, -122.3308],
+        [47.6094, -122.3321],
+        [47.6083, -122.3334],
+      ];
+      const map = L.map('map').setView(initialPosition, 16);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+      }).addTo(map);
+
+      let driverMarker = null;
+      let routeLine = L.polyline([], { color: '#1976d2', weight: 4 }).addTo(map);
+      let eventSource = null;
+      let connectedDeliveryId = null;
+      let simulationTimer = null;
+      let routeIndex = 0;
+      let driverRunning = false;
+
+      const deliveryIdInput = document.getElementById('delivery-id');
+      const connectButton = document.getElementById('connect-button');
+      const status = document.getElementById('status');
+      const driverStatus = document.getElementById('driver-status');
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('deliveryId')) deliveryIdInput.value = params.get('deliveryId');
+
+      function currentDeliveryId() {
+        return deliveryIdInput.value.trim();
+      }
+
+      function connectCustomerView() {
+        const deliveryId = currentDeliveryId();
+        if (!deliveryId) {
+          status.textContent = 'Enter a delivery ID';
+          return;
+        }
+
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource(
+          `/api/deliveries/${encodeURIComponent(deliveryId)}/events`
+        );
+        connectedDeliveryId = deliveryId;
+        status.textContent = `Connecting to ${deliveryId}...`;
+        connectButton.textContent = 'Reconnect customer view';
+
+        eventSource.onopen = () => {
+          status.textContent = `Live: ${deliveryId}`;
+        };
+        eventSource.onmessage = (event) => {
+          const location = JSON.parse(event.data);
+          showLocation(location);
+          status.textContent = `Live: ${deliveryId}`;
+        };
+        eventSource.onerror = () => {
+          status.textContent = 'Connection interrupted; browser will retry';
+        };
+      }
+
+      function showLocation(location) {
+        const point = [location.latitude, location.longitude];
+        if (!driverMarker) {
+          driverMarker = L.marker(point).addTo(map).bindPopup('Delivery person');
+        } else {
+          driverMarker.setLatLng(point);
+        }
+        routeLine.addLatLng(point);
+        map.panTo(point);
+        document.getElementById('location-label').textContent =
+          `Delivery ${location.deliveryId}: ${location.latitude.toFixed(6)}, ` +
+          `${location.longitude.toFixed(6)} · ${new Date(location.timestamp).toLocaleTimeString()}`;
+      }
+
+      async function sendNextSimulatedLocation() {
+        if (!driverRunning) return;
+        const deliveryId = currentDeliveryId();
+        const [latitude, longitude] = route[routeIndex % route.length];
+        routeIndex += 1;
+
+        try {
+          const response = await fetch(
+            `/api/deliveries/${encodeURIComponent(deliveryId)}/location`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ latitude, longitude }),
+            }
+          );
+          if (!response.ok) throw new Error(`Server returned ${response.status}`);
+          driverStatus.textContent = `Sent ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        } catch (error) {
+          driverStatus.textContent = `Send failed: ${error.message}`;
+        }
+
+        if (driverRunning) simulationTimer = setTimeout(sendNextSimulatedLocation, 1000);
+      }
+
+      connectButton.addEventListener('click', connectCustomerView);
+      document.getElementById('start-button').addEventListener('click', () => {
+        if (!currentDeliveryId()) {
+          driverStatus.textContent = 'Enter a delivery ID first';
+          return;
+        }
+        if (!eventSource || eventSource.readyState === EventSource.CLOSED
+            || connectedDeliveryId !== currentDeliveryId()) {
+          connectCustomerView();
+        }
+        driverRunning = true;
+        routeIndex = 0;
+        document.getElementById('start-button').disabled = true;
+        document.getElementById('stop-button').disabled = false;
+        driverStatus.textContent = 'Driver simulation running';
+        sendNextSimulatedLocation();
+      });
+      document.getElementById('stop-button').addEventListener('click', () => {
+        driverRunning = false;
+        clearTimeout(simulationTimer);
+        document.getElementById('start-button').disabled = false;
+        document.getElementById('stop-button').disabled = true;
+        driverStatus.textContent = 'Stopped';
+      });
+
+      connectCustomerView();
+    </script>
+  </body>
+</html>
