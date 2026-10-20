@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SSE vs WebSocket Demo (Spring)</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 16px;
+        background: #f5f5f5;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .grid {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .panel {
+        flex: 1 1 320px;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 12px;
+      }
+      .log {
+        height: 220px;
+        overflow-y: auto;
+        background: #111;
+        color: #0f0;
+        font-family: monospace;
+        font-size: 12px;
+        padding: 8px;
+        border-radius: 4px;
+        margin-top: 8px;
+      }
+      button {
+        margin-right: 4px;
+        margin-top: 4px;
+      }
+      .controls {
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SSE vs WebSocket Demo (Spring)</h1>
+    <p>
+      This page connects to two endpoints in the same Spring Boot application:
+      <code>/sse</code> (Server-Sent Events) and <code>/ws</code> (WebSocket).
+    </p>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>Server-Sent Events (SSE)</h2>
+        <div class="controls">
+          <button id="sse-connect">Connect</button>
+          <button id="sse-disconnect">Disconnect</button>
+        </div>
+        <div id="sse-log" class="log"></div>
+      </div>
+
+      <div class="panel">
+        <h2>WebSocket</h2>
+        <div class="controls">
+          <button id="ws-connect">Connect</button>
+          <button id="ws-disconnect">Disconnect</button>
+          <button id="ws-send">Send test message</button>
+        </div>
+        <div id="ws-log" class="log"></div>
+      </div>
+    </div>
+
+    <h2>Quick Comparison</h2>
+    <ul>
+      <li>SSE (<code>/sse</code>): server → client only, built on HTTP streaming.</li>
+      <li>WebSocket (<code>/ws</code>): client ↔ server, full duplex protocol.</li>
+      <li>SSE: easy with Spring MVC via <code>SseEmitter</code>.</li>
+      <li>WebSocket: uses Spring's WebSocket support with a handler and config.</li>
+    </ul>
+
+    <script>
+      const sseLog = document.getElementById('sse-log');
+      const wsLog = document.getElementById('ws-log');
+
+      function appendLog(el, msg) {
+        const line = document.createElement('div');
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        el.appendChild(line);
+        el.scrollTop = el.scrollHeight;
+      }
+
+      // SSE client
+      let eventSource = null;
+
+      document.getElementById('sse-connect').onclick = () => {
+        if (eventSource && eventSource.readyState === EventSource.OPEN) return;
+
+        appendLog(sseLog, 'Connecting to /sse ...');
+        eventSource = new EventSource('/sse');
+
+        eventSource.onopen = () => {
+          appendLog(sseLog, 'SSE connection opened');
+        };
+
+        eventSource.onmessage = (event) => {
+          appendLog(sseLog, `message: ${event.data}`);
+        };
+
+        eventSource.onerror = () => {
+          appendLog(sseLog, 'SSE error or disconnected');
+        };
+      };
+
+      document.getElementById('sse-disconnect').onclick = () => {
+        if (eventSource) {
+          appendLog(sseLog, 'Closing SSE connection');
+          eventSource.close();
+          eventSource = null;
+        }
+      };
+
+      // WebSocket client
+      let socket = null;
+
+      function wsUrl() {
+        const loc = window.location;
+        const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+        return proto + '//' + loc.host + '/ws';
+      }
+
+      document.getElementById('ws-connect').onclick = () => {
+        if (socket && socket.readyState === WebSocket.OPEN) return;
+
+        const url = wsUrl();
+        appendLog(wsLog, `Connecting to ${url} ...`);
+        socket = new WebSocket(url);
+
+        socket.onopen = () => {
+          appendLog(wsLog, 'WebSocket connection opened');
+        };
+
+        socket.onmessage = (event) => {
+          appendLog(wsLog, `message: ${event.data}`);
+        };
+
+        socket.onclose = () => {
+          appendLog(wsLog, 'WebSocket connection closed');
+        };
+
+        socket.onerror = () => {
+          appendLog(wsLog, 'WebSocket error');
+        };
+      };
+
+      document.getElementById('ws-disconnect').onclick = () => {
+        if (socket) {
+          appendLog(wsLog, 'Closing WebSocket');
+          socket.close();
+          socket = null;
+        }
+      };
+
+      document.getElementById('ws-send').onclick = () => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          appendLog(wsLog, 'Cannot send: WebSocket not open');
+          return;
+        }
+        const msg = 'Hello from browser';
+        appendLog(wsLog, `send: ${msg}`);
+        socket.send(msg);
+      };
+    </script>
+  </body>
+  </html>
