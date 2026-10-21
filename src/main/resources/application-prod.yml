@@ -1,0 +1,8 @@
+logging:
+  level:
+    root: INFO
+
+server:
+  error:
+    include-message: never
+  shutdown: graceful

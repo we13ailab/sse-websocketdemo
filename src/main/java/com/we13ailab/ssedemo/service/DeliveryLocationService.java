@@ -1,9 +1,11 @@
-package com.we13ailab.ssedemo;
+package com.we13ailab.ssedemo.service;
 
+import com.we13ailab.ssedemo.dto.response.DeliveryLocation;
+import com.we13ailab.ssedemo.util.SseEmitterUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -16,7 +18,7 @@ public class DeliveryLocationService {
         DeliveryState state = deliveries.computeIfAbsent(location.deliveryId(), ignored -> new DeliveryState());
         synchronized (state) {
             state.latestLocation = location;
-            state.subscribers.removeIf(emitter -> !send(emitter, location));
+            state.subscribers.removeIf(emitter -> !SseEmitterUtils.send(emitter, location));
         }
         return location;
     }
@@ -24,6 +26,14 @@ public class DeliveryLocationService {
     public DeliveryLocation latestLocation(String deliveryId) {
         DeliveryState state = deliveries.get(deliveryId);
         return state == null ? null : state.latestLocation;
+    }
+
+    public void reset(String deliveryId) {
+        DeliveryState state = deliveries.computeIfAbsent(deliveryId, ignored -> new DeliveryState());
+        synchronized (state) {
+            state.latestLocation = null;
+            state.subscribers.removeIf(emitter -> !sendReset(emitter, deliveryId));
+        }
     }
 
     public SseEmitter subscribe(String deliveryId) {
@@ -39,32 +49,20 @@ public class DeliveryLocationService {
             state.subscribers.add(emitter);
             // Commit/flush the SSE response immediately, even if the driver has not
             // posted its first location yet. Otherwise clients can wait for headers.
-            if (!sendComment(emitter) || (state.latestLocation != null && !send(emitter, state.latestLocation))) {
+            if (!SseEmitterUtils.sendComment(emitter)
+                    || (state.latestLocation != null && !SseEmitterUtils.send(emitter, state.latestLocation))) {
                 state.subscribers.remove(emitter);
             }
         }
         return emitter;
     }
 
-    private boolean send(SseEmitter emitter, DeliveryLocation location) {
-        try {
-            // No named event is used so browser EventSource.onmessage receives it.
-            emitter.send(SseEmitter.event().data(location));
-            return true;
-        } catch (IOException | IllegalStateException exception) {
-            emitter.completeWithError(exception);
-            return false;
-        }
-    }
-
-    private boolean sendComment(SseEmitter emitter) {
-        try {
-            emitter.send(SseEmitter.event().comment("connected"));
-            return true;
-        } catch (IOException | IllegalStateException exception) {
-            emitter.completeWithError(exception);
-            return false;
-        }
+    private boolean sendReset(SseEmitter emitter, String deliveryId) {
+        return SseEmitterUtils.sendNamedEvent(
+                emitter,
+                "reset",
+                Map.of("type", "reset", "deliveryId", deliveryId)
+        );
     }
 
     private static final class DeliveryState {

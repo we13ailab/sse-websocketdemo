@@ -1,5 +1,6 @@
-package com.we13ailab.ssedemo;
+package com.we13ailab.ssedemo.config;
 
+import com.we13ailab.ssedemo.websocket.WsTickHandler;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;

@@ -6,6 +6,8 @@ This project is a minimal Spring Boot application that exposes two real-time API
 - WebSocket endpoint: `ws://localhost:8080/ws`
 - Demo UI: `GET /` (serves `src/main/resources/static/index.html`)
 
+Java code is organized by responsibility under `com.we13ailab.ssedemo`: `controller`, `service`, `dto.request`, `dto.response`, `model`, `config`, `websocket`, and `util`.
+
 Spring Boot version: `4.1.1`
 Java version: `21` (see `pom.xml` properties)
 
@@ -55,35 +57,41 @@ The food-delivery location demo is available at:
 http://localhost:8080/tracking.html
 ```
 
+![Firefox screenshot of the live Bengaluru delivery tracker with order status, ETA, and map](screenshots/tracking-page.png)
+
 ---
 
 ## Live Food-Delivery Tracking Demo
 
 The tracking flow uses a driver-to-server HTTP `POST` and server-to-customer SSE stream:
 
-1. The driver simulator posts a latitude and longitude every second.
+1. The driver simulator posts a latitude and longitude every second, starting at ITPL in Whitefield.
 2. Spring stores the latest location per delivery in memory.
 3. Spring broadcasts each update to customer browsers connected to that delivery's SSE stream.
 4. The tracking page moves the driver marker on a Leaflet map.
 
-The map uses Leaflet with OpenStreetMap's free standard tiles and displays the required map attribution. It requires internet access in the browser. The public OpenStreetMap tile service is intended for modest demo use; follow its tile usage policy and use a hosted tile provider for production or significant traffic.
+The map uses Leaflet with free OpenStreetMap tiles and displays the required attribution. On page load, it requests the full driving geometry from the public OSRM demo router (`router.project-osrm.org`); the driver simulation sends points along that road geometry so the marker and blue traveled line follow mapped roads rather than straight lines between hand-picked coordinates. Both map tiles and routing require internet access. These public services are suitable for this demo, not production traffic; follow their usage policies and use an appropriate hosted provider for production.
 
 ### Try it in the browser
 
 1. Start the app and open `http://localhost:8080/tracking.html`.
 2. Keep the default delivery ID `demo-order-1` or choose another ID.
-3. Click **Start simulated driver**. The sample driver sends a new point every second.
+3. Click **Mark picked up & start route**. The page advances the order through pickup and on-the-way, then sends driver locations every second.
 4. Watch the marker and coordinates update on the map.
-5. To see separate driver and customer clients, open the same tracking URL in two tabs with the same delivery ID. Start the simulator in one tab; the other tab receives the live locations.
+5. At arrival, share the OTP shown in the customer status banner with the driver and enter it in the driver OTP form to complete delivery.
+6. To see separate driver and customer clients, open the same tracking URL in two tabs with the same delivery ID. Run the simulator in one tab; the other tab receives live status and location updates.
+7. Click **Reset delivery** to clear the route progress and OTP and restart the order at **Ready for pickup**. The status banner and reset control are directly above the map area.
 
-The sample coordinates follow a short route near Seattle. They are test coordinates, not actual driver GPS data.
+The simulated delivery travels from ITPL, Whitefield to Sobha Dream Acres on Balagere Road. Whitefield, Brookefield, and Varthur are labeled on the map. The route comes from OpenStreetMap road data via OSRM; it is a test route, not actual driver GPS data or live traffic routing.
+
+The status banner also shows a remaining ETA. Select **Light**, **Typical**, or **Heavy traffic** to see the demo estimate adjust as the driver progresses along the route. OSRM's free demo router provides a baseline route duration, not live traffic conditions; the traffic multipliers here are illustrative. A truly traffic-aware ETA requires a traffic data provider/API key and is not claimed by this demo.
 
 ### Location APIs
 
 Post a driver location:
 
 ```bash
-curl -X POST http://localhost:8080/api/deliveries/demo-order-1/location -H 'Content-Type: application/json' -d '{"latitude":47.6062,"longitude":-122.3321}'
+curl -X POST http://localhost:8080/api/deliveries/demo-order-1/location -H 'Content-Type: application/json' -d '{"latitude":12.9877152,"longitude":77.7369166}'
 ```
 
 Get the latest location:
@@ -103,17 +111,43 @@ Each event contains JSON similar to:
 ```json
 {
   "deliveryId": "demo-order-1",
-  "latitude": 47.6062,
-  "longitude": -122.3321,
+  "latitude": 12.9877152,
+  "longitude": 77.7369166,
   "timestamp": "2026-10-20T12:00:00Z"
 }
 ```
 
 Coordinates outside latitude `-90..90` or longitude `-180..180` are rejected. `GET /location` returns `404` until the first location has been posted.
 
+### Live order status and OTP
+
+The status banner begins at **Order is ready for pickup** and receives updates over its own SSE connection. The simulated flow broadcasts **Order picked up**, **Your order is on the way**, and **Your delivery person has reached your location**. On arrival the server generates a 4-digit OTP; the customer banner shows it to share with the driver. The driver submits the code in the OTP form. Only a correct OTP changes the status to **Order delivered successfully**; an incorrect code is rejected.
+
+Status endpoints:
+
+- `GET /api/deliveries/{deliveryId}/status` — retrieve current status.
+- `GET /api/deliveries/{deliveryId}/status/events` — subscribe to live status updates.
+- `POST /api/deliveries/{deliveryId}/status/picked-up` — mark the order picked up.
+- `POST /api/deliveries/{deliveryId}/status/on-the-way` — mark the driver en route.
+- `POST /api/deliveries/{deliveryId}/status/arrived` — mark arrival and generate the OTP.
+- `POST /api/deliveries/{deliveryId}/status/verify-otp` — verify JSON body `{"otp":"1234"}`.
+- `POST /api/deliveries/{deliveryId}/reset` — clear the saved location and OTP and return status to ready for pickup; connected pages receive reset/status events.
+
+For example, to watch the live status stream:
+
+```bash
+curl -N http://localhost:8080/api/deliveries/demo-order-1/status/events
+```
+
+Reset and replay the demo order:
+
+```bash
+curl -X POST http://localhost:8080/api/deliveries/demo-order-1/reset
+```
+
 ### Automated real-time update test
 
-The integration test opens an SSE connection, posts two different locations, and verifies that both arrive on that same connection in order. It also checks that the latest-location endpoint returns the second point:
+The integration tests verify location broadcasts and the status/OTP happy path, including that an incorrect OTP is rejected and a correct one completes the delivery:
 
 ```bash
 ./mvnw -Dtest=DeliveryTrackingIntegrationTest test
@@ -123,9 +157,63 @@ Locations and active SSE subscribers are held in application memory. They are lo
 
 ---
 
+## Docker
+
+Build and run with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8080/`. Select another Spring profile or host port if needed:
+
+```bash
+SPRING_PROFILES_ACTIVE=test APP_PORT=8081 docker compose up --build
+```
+
+The image is built from the Maven project in a Java 21 build stage and runs as a non-root user. There are no database or broker containers because this demo stores state in memory.
+
+---
+
+## Spring Profiles and Helm/Kubernetes
+
+Spring profile configuration lives in:
+
+- `src/main/resources/application.yml` (shared defaults)
+- `src/main/resources/application-dev.yml`
+- `src/main/resources/application-test.yml`
+- `src/main/resources/application-prod.yml`
+
+The Helm chart is under `helm/ssedemo/`, with environment-specific overrides in `values-dev.yaml`, `values-test.yaml`, and `values-prod.yaml`. Lint and render the chart:
+
+```bash
+helm lint helm/ssedemo
+helm template ssedemo-dev helm/ssedemo -f helm/ssedemo/values-dev.yaml
+```
+
+Install an environment (replace the namespace/host/image values to match your cluster):
+
+```bash
+helm upgrade --install ssedemo-dev helm/ssedemo --namespace ssedemo-dev --create-namespace -f helm/ssedemo/values-dev.yaml
+
+helm upgrade --install ssedemo-test helm/ssedemo --namespace ssedemo-test --create-namespace -f helm/ssedemo/values-test.yaml
+
+helm upgrade --install ssedemo-prod helm/ssedemo --namespace ssedemo-prod --create-namespace -f helm/ssedemo/values-prod.yaml
+```
+
+For local access without ingress, port-forward the service:
+
+```bash
+kubectl -n ssedemo-dev port-forward svc/ssedemo-dev 8080:80
+```
+
+The chart keeps `replicaCount: 1` in every environment because location, status, and OTP state is in process memory. Increasing replicas would make updates inconsistent across pods. The sample chart uses placeholder image names and ingress hosts; set these to values available in your cluster before deploying. Configure TLS and real hostnames in the environment values for an exposed deployment.
+
+---
+
 ## SSE Endpoint (`/sse`)
 
-**Code:** `SseController` (`src/main/java/com/we13ailab/ssedemo/SseController.java`)
+**Code:** `SseController` (`src/main/java/com/we13ailab/ssedemo/controller/SseController.java`)
 
 Signature:
 
@@ -194,8 +282,8 @@ SSE is **not** ideal when the client also needs to send arbitrary messages to th
 
 **Code:**
 
-- Config: `WebSocketConfig` (`src/main/java/com/we13ailab/ssedemo/WebSocketConfig.java`)
-- Handler: `WsTickHandler` (`src/main/java/com/we13ailab/ssedemo/WsTickHandler.java`)
+- Config: `WebSocketConfig` (`src/main/java/com/we13ailab/ssedemo/config/WebSocketConfig.java`)
+- Handler: `WsTickHandler` (`src/main/java/com/we13ailab/ssedemo/websocket/WsTickHandler.java`)
 
 Registration:
 

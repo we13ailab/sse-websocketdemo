@@ -1,4 +1,4 @@
-package com.we13ailab.ssedemo;
+package com.we13ailab.ssedemo.websocket;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;

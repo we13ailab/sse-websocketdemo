@@ -1,0 +1,8 @@
+logging:
+  level:
+    root: WARN
+    com.we13ailab.ssedemo: INFO
+
+server:
+  error:
+    include-message: always

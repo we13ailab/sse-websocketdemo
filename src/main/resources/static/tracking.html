@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Live Food Delivery Tracking</title>
+    <title>Bengaluru Food Delivery Tracking</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -36,7 +36,8 @@
         gap: 10px;
       }
       input,
-      button {
+      button,
+      select {
         padding: 9px 12px;
         font: inherit;
       }
@@ -56,6 +57,76 @@
       .muted {
         color: #52606d;
       }
+      [hidden] {
+        display: none !important;
+      }
+      .status-banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        margin: 16px 0;
+        border: 1px solid #cbd5e1;
+        border-left: 8px solid #64748b;
+        border-radius: 10px;
+        background: #f8fafc;
+      }
+      .status-banner h2,
+      .status-banner p {
+        margin: 4px 0;
+      }
+      .status-ready {
+        border-left-color: #d97706;
+        background: #fffbeb;
+      }
+      .status-picked-up,
+      .status-on-the-way {
+        border-left-color: #2563eb;
+        background: #eff6ff;
+      }
+      .status-arrived {
+        border-left-color: #7c3aed;
+        background: #f5f3ff;
+      }
+      .status-delivered {
+        border-left-color: #16a34a;
+        background: #f0fdf4;
+      }
+      .otp-share {
+        min-width: 170px;
+        padding: 12px 16px;
+        border: 1px dashed #7c3aed;
+        border-radius: 8px;
+        text-align: center;
+        background: white;
+      }
+      .eta-panel {
+        min-width: 180px;
+        padding: 12px 16px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: white;
+      }
+      .eta-panel strong,
+      .eta-panel small {
+        display: block;
+        margin-top: 4px;
+      }
+      .otp-code {
+        display: block;
+        margin-top: 4px;
+        color: #5b21b6;
+        font-size: 28px;
+        font-weight: bold;
+        letter-spacing: 5px;
+      }
+      .otp-form {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #dce3e8;
+      }
       code {
         background: #edf1f4;
         padding: 2px 5px;
@@ -64,10 +135,10 @@
   </head>
   <body>
     <main>
-      <h1>Live Food Delivery Tracking</h1>
+      <h1>Bengaluru Food Delivery Tracking</h1>
       <p class="muted">
-        The driver simulator posts a location every second. The customer map receives each update
-        immediately over Server-Sent Events.
+        Follow a simulated delivery from ITPL, Whitefield to Sobha Dream Acres on Balagere Road.
+        Driver locations update on the customer map in real time over Server-Sent Events.
       </p>
 
       <section class="card">
@@ -75,7 +146,14 @@
         <div class="controls">
           <label for="delivery-id">Delivery ID</label>
           <input id="delivery-id" value="demo-order-1" />
+          <label for="traffic-scenario">Traffic estimate (demo)</label>
+          <select id="traffic-scenario">
+            <option value="light">Light traffic</option>
+            <option value="typical" selected>Typical traffic</option>
+            <option value="heavy">Heavy traffic</option>
+          </select>
           <button id="connect-button">Connect customer view</button>
+          <button id="reset-button" type="button">Reset delivery</button>
           <span id="status">Not connected</span>
         </div>
         <p class="muted">
@@ -87,15 +165,41 @@
       <section class="card">
         <h2>Driver test simulator</h2>
         <div class="controls">
-          <button id="start-button">Start simulated driver</button>
+          <button id="start-button" disabled>Mark picked up &amp; start route</button>
           <button id="stop-button" disabled>Stop driver</button>
           <span id="driver-status" class="muted">Stopped</span>
         </div>
+        <form id="otp-form" class="otp-form" hidden>
+          <label for="driver-otp">Driver: enter OTP shared by the customer to complete delivery</label>
+          <div class="controls">
+            <input id="driver-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="4-digit OTP" required />
+            <button id="verify-otp-button" type="submit">Verify OTP &amp; deliver</button>
+            <span id="otp-feedback" class="muted" role="status"></span>
+          </div>
+        </form>
         <p class="muted">
-          Sample route near Seattle. Each simulated GPS point is sent to the Spring API; no phone
-          GPS permission is needed.
+          Simulated pickup at ITPL, Whitefield, followed by a one-way route via Whitefield Main Road
+          and Varthur Road to Sobha Dream Acres on Balagere Road. No phone GPS permission is needed.
         </p>
       </section>
+
+      <section id="order-status-banner" class="status-banner status-ready" role="status" aria-live="polite">
+        <div>
+          <small>LIVE ORDER STATUS</small>
+          <h2 id="order-status-title">Connecting to order updates...</h2>
+          <p id="order-status-message" class="muted">Waiting for the latest delivery status.</p>
+        </div>
+        <div id="customer-otp" class="otp-share" hidden>
+          Share this OTP with your driver
+          <strong id="delivery-otp" class="otp-code"></strong>
+        </div>
+        <div class="eta-panel">
+          Estimated arrival
+          <strong id="eta-time">Loading route estimate...</strong>
+          <small id="eta-details" class="muted">Estimate uses the selected demo traffic condition.</small>
+        </div>
+      </section>
+      <p id="status-stream-status" class="muted">Connecting to live order status...</p>
 
       <section class="card">
         <h2>Customer map</h2>
@@ -113,26 +217,67 @@
       crossorigin=""
     ></script>
     <script>
-      const initialPosition = [47.6062, -122.3321];
-      const route = [
-        [47.6062, -122.3321],
-        [47.6070, -122.3309],
-        [47.6079, -122.3297],
-        [47.6088, -122.3308],
-        [47.6094, -122.3321],
-        [47.6083, -122.3334],
+      const pickupPosition = [12.9877152, 77.7369166]; // ITPL, Whitefield Road
+      const destinationPosition = [12.9357666, 77.7211346]; // Sobha Dream Acres, Balagere Road
+      const areaLabels = [
+        { name: 'Whitefield', position: [12.9696365, 77.7497448] },
+        { name: 'Brookefield', position: [12.9652094, 77.717936] },
+        { name: 'Varthur', position: [12.9406508, 77.746988] },
       ];
-      const map = L.map('map').setView(initialPosition, 16);
+      const map = L.map('map');
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
       }).addTo(map);
 
+      const routeBounds = L.latLngBounds([
+        pickupPosition,
+        destinationPosition,
+        ...areaLabels.map((area) => area.position),
+      ]);
+      areaLabels.forEach((area) => {
+        L.circleMarker(area.position, {
+          radius: 5,
+          color: '#5b6573',
+          fillColor: '#ffffff',
+          fillOpacity: 1,
+          weight: 2,
+        })
+          .addTo(map)
+          .bindTooltip(area.name, { permanent: true, direction: 'right', className: 'area-label' });
+        routeBounds.extend(area.position);
+      });
+      map.fitBounds(routeBounds, { padding: [35, 35] });
+
+      L.marker(pickupPosition)
+        .addTo(map)
+        .bindPopup('Pickup: ITPL, Whitefield')
+        .bindTooltip('Pickup · ITPL', { permanent: true, direction: 'top' });
+      L.marker(destinationPosition)
+        .addTo(map)
+        .bindPopup('Destination: Sobha Dream Acres, Balagere Road')
+        .bindTooltip('Destination · Sobha Dream Acres', { permanent: true, direction: 'top' });
+      const roadRouteLine = L.polyline([], {
+        color: '#718096',
+        weight: 5,
+        opacity: 0.75,
+        dashArray: '7 8',
+      }).addTo(map);
+
       let driverMarker = null;
-      let routeLine = L.polyline([], { color: '#1976d2', weight: 4 }).addTo(map);
+      let routeProgress = L.polyline([], { color: '#1976d2', weight: 5 }).addTo(map);
+      let roadRoute = [];
+      let simulationStride = 1;
+      let lastRenderedRouteIndex = -1;
+      let routeDurationSeconds = 0;
+      let routeDistanceMeters = 0;
+      let routeProgressMeters = 0;
+      let cumulativeRouteDistances = [];
       let eventSource = null;
+      let statusEventSource = null;
       let connectedDeliveryId = null;
+      let connectedStatusDeliveryId = null;
       let simulationTimer = null;
       let routeIndex = 0;
       let driverRunning = false;
@@ -141,6 +286,211 @@
       const connectButton = document.getElementById('connect-button');
       const status = document.getElementById('status');
       const driverStatus = document.getElementById('driver-status');
+      const startButton = document.getElementById('start-button');
+      const trafficScenario = document.getElementById('traffic-scenario');
+      let latestOrderStage = null;
+
+      const statusPresentation = {
+        READY_FOR_PICKUP: { title: 'Order is ready for pickup', style: 'status-ready' },
+        PICKED_UP: { title: 'Order picked up', style: 'status-picked-up' },
+        ON_THE_WAY: { title: 'Your order is on the way', style: 'status-on-the-way' },
+        ARRIVED: { title: 'Your delivery person has reached your location', style: 'status-arrived' },
+        DELIVERED: { title: 'Order delivered successfully', style: 'status-delivered' },
+      };
+
+      function distanceBetweenMeters(first, second) {
+        const radians = (degrees) => degrees * Math.PI / 180;
+        const latitudeDelta = radians(second[0] - first[0]);
+        const longitudeDelta = radians(second[1] - first[1]);
+        const latitude1 = radians(first[0]);
+        const latitude2 = radians(second[0]);
+        const haversine = Math.sin(latitudeDelta / 2) ** 2
+          + Math.cos(latitude1) * Math.cos(latitude2) * Math.sin(longitudeDelta / 2) ** 2;
+        return 6_371_000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+      }
+
+      function showOrderStatus(statusUpdate) {
+        latestOrderStage = statusUpdate.stage;
+        const presentation = statusPresentation[statusUpdate.stage] || {
+          title: 'Delivery status updated',
+          style: '',
+        };
+        const banner = document.getElementById('order-status-banner');
+        banner.className = `status-banner ${presentation.style}`;
+        document.getElementById('order-status-title').textContent = presentation.title;
+        document.getElementById('order-status-message').textContent = statusUpdate.message;
+
+        const customerOtp = document.getElementById('customer-otp');
+        customerOtp.hidden = statusUpdate.stage !== 'ARRIVED' || !statusUpdate.otp;
+        document.getElementById('delivery-otp').textContent = statusUpdate.otp || '';
+
+        const otpForm = document.getElementById('otp-form');
+        otpForm.hidden = statusUpdate.stage !== 'ARRIVED';
+        document.getElementById('driver-otp').disabled = statusUpdate.stage !== 'ARRIVED';
+        document.getElementById('verify-otp-button').disabled = statusUpdate.stage !== 'ARRIVED';
+        startButton.disabled = statusUpdate.stage !== 'READY_FOR_PICKUP' || !roadRoute.length;
+        updateEta();
+      }
+
+      function updateEta() {
+        const etaTime = document.getElementById('eta-time');
+        const etaDetails = document.getElementById('eta-details');
+        if (latestOrderStage === 'DELIVERED') {
+          etaTime.textContent = 'Delivered';
+          etaDetails.textContent = 'Order delivered successfully';
+          return;
+        }
+        if (latestOrderStage === 'ARRIVED') {
+          etaTime.textContent = 'Driver has arrived';
+          etaDetails.textContent = 'Waiting for the customer OTP';
+          return;
+        }
+        if (!routeDurationSeconds || !routeDistanceMeters) {
+          etaTime.textContent = 'Loading route estimate...';
+          etaDetails.textContent = 'Waiting for road-routing data';
+          return;
+        }
+
+        const trafficFactors = { light: 1, typical: 1.3, heavy: 1.8 };
+        const trafficNames = { light: 'Light', typical: 'Typical', heavy: 'Heavy' };
+        const traffic = trafficScenario.value;
+        const remainingFraction = Math.max(0, 1 - routeProgressMeters / routeDistanceMeters);
+        const remainingSeconds = Math.ceil(
+          routeDurationSeconds * trafficFactors[traffic] * remainingFraction
+        );
+        const arrivalTime = new Date(Date.now() + remainingSeconds * 1000);
+        const durationLabel = remainingSeconds >= 60
+          ? `~${Math.ceil(remainingSeconds / 60)} min`
+          : `~${remainingSeconds} sec`;
+        const clockTime = arrivalTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        etaTime.textContent = `${durationLabel} · ${clockTime}`;
+        etaDetails.textContent = `${trafficNames[traffic]} traffic assumption · demo estimate, not live traffic`;
+      }
+
+      function clearTrackingView() {
+        driverRunning = false;
+        clearTimeout(simulationTimer);
+        simulationTimer = null;
+        routeIndex = 0;
+        lastRenderedRouteIndex = -1;
+        routeProgressMeters = 0;
+        routeProgress.setLatLngs([]);
+        if (driverMarker) {
+          map.removeLayer(driverMarker);
+          driverMarker = null;
+        }
+        document.getElementById('location-label').textContent = 'Waiting for the first location...';
+        document.getElementById('start-button').disabled = !roadRoute.length;
+        document.getElementById('stop-button').disabled = true;
+        driverStatus.textContent = 'Delivery reset. Ready for pickup.';
+        document.getElementById('driver-otp').value = '';
+        document.getElementById('otp-feedback').textContent = '';
+        updateEta();
+      }
+
+      async function resetDelivery() {
+        const deliveryId = currentDeliveryId();
+        if (!deliveryId) {
+          status.textContent = 'Enter a delivery ID';
+          return;
+        }
+        if (connectedDeliveryId !== deliveryId || connectedStatusDeliveryId !== deliveryId) {
+          connectCustomerView();
+        }
+
+        const resetButton = document.getElementById('reset-button');
+        resetButton.disabled = true;
+        try {
+          const response = await fetch(
+            `/api/deliveries/${encodeURIComponent(deliveryId)}/reset`,
+            { method: 'POST' }
+          );
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || 'Reset failed');
+          clearTrackingView();
+          showOrderStatus(result);
+          status.textContent = `Reset delivery: ${deliveryId}`;
+        } catch (error) {
+          driverStatus.textContent = `Could not reset delivery: ${error.message}`;
+        } finally {
+          resetButton.disabled = false;
+        }
+      }
+
+      function connectStatusStream() {
+        const deliveryId = currentDeliveryId();
+        if (!deliveryId) return;
+        if (statusEventSource) statusEventSource.close();
+        statusEventSource = new EventSource(
+          `/api/deliveries/${encodeURIComponent(deliveryId)}/status/events`
+        );
+        connectedStatusDeliveryId = deliveryId;
+        statusEventSource.onopen = () => {
+          document.getElementById('status-stream-status').textContent = 'Live order status connected';
+        };
+        statusEventSource.onmessage = (event) => showOrderStatus(JSON.parse(event.data));
+        statusEventSource.onerror = () => {
+          document.getElementById('status-stream-status').textContent =
+            'Order status connection interrupted; browser will retry';
+        };
+      }
+
+      async function postStatus(action, body) {
+        const deliveryId = encodeURIComponent(currentDeliveryId());
+        const options = { method: 'POST' };
+        if (body) {
+          options.headers = { 'Content-Type': 'application/json' };
+          options.body = JSON.stringify(body);
+        }
+        const response = await fetch(`/api/deliveries/${deliveryId}/status/${action}`, options);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || result.message || 'Status update failed');
+        return result;
+      }
+
+      function wait(milliseconds) {
+        return new Promise((resolve) => setTimeout(resolve, milliseconds));
+      }
+
+      async function loadRoadRoute() {
+        const start = `${pickupPosition[1]},${pickupPosition[0]}`;
+        const end = `${destinationPosition[1]},${destinationPosition[0]}`;
+        const url = `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson&steps=false`;
+        driverStatus.textContent = 'Loading road-following route...';
+        document.getElementById('start-button').disabled = true;
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Routing service returned ${response.status}`);
+          const result = await response.json();
+          if (result.code !== 'Ok' || !result.routes?.length) {
+            throw new Error('No driving route was found');
+          }
+
+          // OSRM returns GeoJSON points as [longitude, latitude]; Leaflet uses [latitude, longitude].
+          roadRoute = result.routes[0].geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]);
+          roadRouteLine.setLatLngs(roadRoute);
+          routeBounds.extend(roadRoute);
+          map.fitBounds(routeBounds, { padding: [35, 35] });
+          routeDurationSeconds = result.routes[0].duration;
+          routeDistanceMeters = result.routes[0].distance;
+          routeProgressMeters = 0;
+          let distanceSoFar = 0;
+          cumulativeRouteDistances = [0];
+          for (let index = 1; index < roadRoute.length; index += 1) {
+            distanceSoFar += distanceBetweenMeters(roadRoute[index - 1], roadRoute[index]);
+            cumulativeRouteDistances.push(distanceSoFar);
+          }
+          simulationStride = Math.max(1, Math.ceil((roadRoute.length - 1) / 60));
+          const distanceKm = (result.routes[0].distance / 1000).toFixed(1);
+          driverStatus.textContent = `Road route loaded · ${distanceKm} km`;
+          startButton.disabled = latestOrderStage !== null && latestOrderStage !== 'READY_FOR_PICKUP';
+          updateEta();
+        } catch (error) {
+          driverStatus.textContent = `Could not load road route: ${error.message}. Click Start to retry.`;
+          startButton.disabled = latestOrderStage !== null && latestOrderStage !== 'READY_FOR_PICKUP';
+        }
+      }
 
       const params = new URLSearchParams(window.location.search);
       if (params.has('deliveryId')) deliveryIdInput.value = params.get('deliveryId');
@@ -172,9 +522,14 @@
           showLocation(location);
           status.textContent = `Live: ${deliveryId}`;
         };
+        eventSource.addEventListener('reset', clearTrackingView);
         eventSource.onerror = () => {
           status.textContent = 'Connection interrupted; browser will retry';
         };
+        if (connectedStatusDeliveryId !== deliveryId || !statusEventSource
+            || statusEventSource.readyState === EventSource.CLOSED) {
+          connectStatusStream();
+        }
       }
 
       function showLocation(location) {
@@ -184,8 +539,30 @@
         } else {
           driverMarker.setLatLng(point);
         }
-        routeLine.addLatLng(point);
+        if (roadRoute.length) {
+          let nearestIndex = 0;
+          let nearestDistance = Number.POSITIVE_INFINITY;
+          roadRoute.forEach(([latitude, longitude], index) => {
+            const distance = Math.hypot(latitude - point[0], longitude - point[1]);
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearestIndex = index;
+            }
+          });
+          if (nearestDistance < 0.0001 && nearestIndex >= lastRenderedRouteIndex) {
+            for (let index = lastRenderedRouteIndex + 1; index <= nearestIndex; index += 1) {
+              routeProgress.addLatLng(roadRoute[index]);
+            }
+            lastRenderedRouteIndex = nearestIndex;
+            routeProgressMeters = cumulativeRouteDistances[nearestIndex] || 0;
+          } else {
+            routeProgress.addLatLng(point);
+          }
+        } else {
+          routeProgress.addLatLng(point);
+        }
         map.panTo(point);
+        updateEta();
         document.getElementById('location-label').textContent =
           `Delivery ${location.deliveryId}: ${location.latitude.toFixed(6)}, ` +
           `${location.longitude.toFixed(6)} · ${new Date(location.timestamp).toLocaleTimeString()}`;
@@ -193,9 +570,15 @@
 
       async function sendNextSimulatedLocation() {
         if (!driverRunning) return;
+        if (routeIndex >= roadRoute.length) {
+          driverRunning = false;
+          document.getElementById('start-button').disabled = false;
+          document.getElementById('stop-button').disabled = true;
+          driverStatus.textContent = 'Arrived at Sobha Dream Acres';
+          return;
+        }
         const deliveryId = currentDeliveryId();
-        const [latitude, longitude] = route[routeIndex % route.length];
-        routeIndex += 1;
+        const [latitude, longitude] = roadRoute[routeIndex];
 
         try {
           const response = await fetch(
@@ -212,21 +595,54 @@
           driverStatus.textContent = `Send failed: ${error.message}`;
         }
 
-        if (driverRunning) simulationTimer = setTimeout(sendNextSimulatedLocation, 1000);
+        if (driverRunning && routeIndex < roadRoute.length - 1) {
+          routeIndex = Math.min(routeIndex + simulationStride, roadRoute.length - 1);
+          simulationTimer = setTimeout(sendNextSimulatedLocation, 1000);
+        } else if (driverRunning) {
+          driverRunning = false;
+          document.getElementById('start-button').disabled = false;
+          document.getElementById('stop-button').disabled = true;
+          driverStatus.textContent = 'Reached Sobha Dream Acres; updating order status...';
+          try {
+            await postStatus('arrived');
+            driverStatus.textContent = 'Arrived. Ask the customer to share the OTP.';
+          } catch (error) {
+            driverStatus.textContent = `Could not update arrival status: ${error.message}`;
+          }
+        }
       }
 
       connectButton.addEventListener('click', connectCustomerView);
-      document.getElementById('start-button').addEventListener('click', () => {
+      document.getElementById('reset-button').addEventListener('click', resetDelivery);
+      trafficScenario.addEventListener('change', updateEta);
+      startButton.addEventListener('click', async () => {
         if (!currentDeliveryId()) {
           driverStatus.textContent = 'Enter a delivery ID first';
           return;
+        }
+        if (!roadRoute.length) {
+          await loadRoadRoute();
+          if (!roadRoute.length) return;
         }
         if (!eventSource || eventSource.readyState === EventSource.CLOSED
             || connectedDeliveryId !== currentDeliveryId()) {
           connectCustomerView();
         }
+        startButton.disabled = true;
+        try {
+          await postStatus('picked-up');
+          driverStatus.textContent = 'Order picked up; starting delivery...';
+          await wait(1200);
+          await postStatus('on-the-way');
+        } catch (error) {
+          driverStatus.textContent = `Could not start delivery: ${error.message}`;
+          startButton.disabled = latestOrderStage !== 'READY_FOR_PICKUP' || !roadRoute.length;
+          return;
+        }
         driverRunning = true;
         routeIndex = 0;
+        lastRenderedRouteIndex = -1;
+        routeProgress.setLatLngs([]);
         document.getElementById('start-button').disabled = true;
         document.getElementById('stop-button').disabled = false;
         driverStatus.textContent = 'Driver simulation running';
@@ -239,8 +655,21 @@
         document.getElementById('stop-button').disabled = true;
         driverStatus.textContent = 'Stopped';
       });
+      document.getElementById('otp-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const otpInput = document.getElementById('driver-otp');
+        const feedback = document.getElementById('otp-feedback');
+        try {
+          await postStatus('verify-otp', { otp: otpInput.value.trim() });
+          feedback.textContent = 'OTP verified; delivery completed.';
+          otpInput.value = '';
+        } catch (error) {
+          feedback.textContent = error.message;
+        }
+      });
 
       connectCustomerView();
+      loadRoadRoute();
     </script>
   </body>
 </html>

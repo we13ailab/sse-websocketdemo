@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: ssedemo
+
+server:
+  port: ${PORT:8080}

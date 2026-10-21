@@ -1,4 +1,4 @@
-package com.we13ailab.ssedemo;
+package com.we13ailab.ssedemo.dto.response;
 
 import java.time.Instant;
 

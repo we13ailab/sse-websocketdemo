@@ -1,0 +1,7 @@
+logging:
+  level:
+    com.we13ailab.ssedemo: DEBUG
+
+server:
+  error:
+    include-message: always

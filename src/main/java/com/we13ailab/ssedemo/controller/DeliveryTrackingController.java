@@ -1,4 +1,10 @@
-package com.we13ailab.ssedemo;
+package com.we13ailab.ssedemo.controller;
+
+import com.we13ailab.ssedemo.dto.request.LocationRequest;
+import com.we13ailab.ssedemo.dto.response.DeliveryLocation;
+import com.we13ailab.ssedemo.dto.response.DeliveryStatus;
+import com.we13ailab.ssedemo.service.DeliveryLocationService;
+import com.we13ailab.ssedemo.service.DeliveryStatusService;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,9 +24,14 @@ import java.time.Instant;
 public class DeliveryTrackingController {
 
     private final DeliveryLocationService locationService;
+    private final DeliveryStatusService statusService;
 
-    public DeliveryTrackingController(DeliveryLocationService locationService) {
+    public DeliveryTrackingController(
+            DeliveryLocationService locationService,
+            DeliveryStatusService statusService
+    ) {
         this.locationService = locationService;
+        this.statusService = statusService;
     }
 
     @PostMapping("/location")
@@ -59,5 +70,14 @@ public class DeliveryTrackingController {
     @GetMapping(path = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter locationEvents(@PathVariable String deliveryId) {
         return locationService.subscribe(deliveryId);
+    }
+
+    @PostMapping("/reset")
+    public DeliveryStatus reset(@PathVariable String deliveryId) {
+        if (deliveryId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deliveryId must not be blank");
+        }
+        locationService.reset(deliveryId);
+        return statusService.reset(deliveryId);
     }
 }

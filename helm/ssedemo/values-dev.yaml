@@ -1,0 +1,25 @@
+app:
+  profile: dev
+
+replicaCount: 1
+
+image:
+  repository: ssedemo
+  tag: dev
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: false
+  hosts:
+    - host: ssedemo-dev.example.test
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

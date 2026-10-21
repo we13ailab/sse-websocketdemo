@@ -1,4 +1,4 @@
-package com.we13ailab.ssedemo;
+package com.we13ailab.ssedemo.controller;
 
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
